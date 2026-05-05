@@ -1,69 +1,87 @@
 ﻿namespace BDNote.Tests;
-
-public class CrudTests
+[Collection("Sequential")]
+public class CrudTests:IAsyncLifetime
 {
-    [Fact]
-    public async Task TestCreate()
+    public async Task InitializeAsync()
     {
         await using var db = new DataContext();
-        await db.Database.EnsureCreatedAsync(); 
-
-        // Act
-        var note = await Crud.Create("Простая заметка", DateTimeOffset.Now);
-
-        // Assert
-        Assert.True(note.Id > 0);
-        Assert.Equal("Простая заметка", note.Text);
-    }
-    
-    [Fact]
-    public async Task TestReadById()
-    {
-        await using var db = new DataContext();
-        await db.Database.EnsureCreatedAsync(); 
-
-        // Arrange
-        var note = await Crud.Create("Найти меня", DateTimeOffset.Now);
-
-        // Act
-        var found = await Crud.Read(note.Id);
-
-        // Assert
-        Assert.NotNull(found);
-        Assert.Equal(note.Id, found.Id);
+        // Полная очистка перед каждым тестом
+        await db.Database.EnsureDeletedAsync();
+        await db.Database.EnsureCreatedAsync();
     }
 
+    public Task DisposeAsync() => Task.CompletedTask;
+
     [Fact]
-    public async Task TestUpdate()
+    public async Task CreateNote_WhenUserExists_ShouldLinkCorrectlty()
     {
-        await using var db = new DataContext();
-        await db.Database.EnsureCreatedAsync(); 
+        // --- Arrange ---
+        var username = "CsharpDeveloper";
+        var email = "dotnet@example.com";
+        var noteText = "Изучить паттерн AAA";
+        var timestamp = DateTimeOffset.UtcNow;
 
-        // Arrange
-        var note = await Crud.Create("Старый текст", DateTimeOffset.Now);
+        // --- Act ---
+        var user = await CrudForUser.Create(username, email);
+        var note = await Crud.Create(user.Id, noteText, timestamp);
+        var result = await CrudForUser.ReadUserWithNotes(user.Id);
 
-        // Act
-        await Crud.Update(note, "Новый текст", DateTimeOffset.Now);
-
-        // Assert
-        var updated = await Crud.Read(note.Id);
-        Assert.Equal("Новый текст", updated?.Text);
+        // --- Assert ---
+        Assert.NotNull(result);
+        Assert.Equal(username, result.Username);
+        Assert.Single(result.Notes);
+        Assert.Equal(noteText, result.Notes[0].Text);
+        Assert.Equal(user.Id, result.Notes[0].UserId);
     }
 
     [Fact]
-    public async Task TestDelete()
+    public async Task DeleteUser_ShouldAutomaticallyDeleteHisNotes()
     {
-        await using var db = new DataContext();
-        await db.Database.EnsureCreatedAsync(); 
+        // --- Arrange ---
+        var user = await CrudForUser.Create("TemporaryUser", "temp@test.com");
+        var note = await Crud.Create(user.Id, "Эта заметка скоро исчезнет", DateTimeOffset.UtcNow);
 
-        // Arrange
-        var note = await Crud.Create("Удали меня", DateTimeOffset.Now);
+        // --- Act ---
+        await CrudForUser.Delete(user);
 
-        // Act
-        await Crud.Delete(note);
+        // --- Assert ---
+        var noteInDb = await Crud.Read(note.Id);
+        Assert.Null(noteInDb);
+    }
 
-        // Assert
-        var deleted = await Crud.Read(note.Id);
-        Assert.Null(deleted);
+    [Fact]
+    public async Task UpdateUser_ShouldPersistChangesInDatabase()
+    {
+        // --- Arrange ---
+        var user = await CrudForUser.Create("OldName", "old@mail.com");
+        var newName = "NewModernName";
+        var newEmail = "new@mail.com";
+
+        // --- Act ---
+        await CrudForUser.Update(user, newName, newEmail);
+
+        // --- Assert ---
+        var updatedUser = await CrudForUser.Read(user.Id);
+        Assert.NotNull(updatedUser);
+        Assert.Equal(newName, updatedUser.Username);
+        Assert.Equal(newEmail, updatedUser.Email);
+    }
+
+    [Fact]
+    public async Task ReadUsers_BySearchText_ShouldReturnMatchingUsers()
+    {
+        // --- Arrange ---
+        await CrudForUser.Create("Alexander", "alex@test.com");
+        await CrudForUser.Create("Alexey", "alexey@test.com");
+        await CrudForUser.Create("Dmitry", "dima@test.com");
+        var searchPart = "Alex";
+
+        // --- Act ---
+        var results = await CrudForUser.Read(searchPart);
+
+        // --- Assert ---
+        Assert.Equal(2, results.Count);
+        Assert.All(results, u => Assert.Contains(searchPart, u.Username));
+        Assert.DoesNotContain(results, u => u.Username == "Dmitry");
     }
 }

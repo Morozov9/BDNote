@@ -11,13 +11,14 @@ public class Crud
     /// Сущность новой заметки. После сохранения в БД её свойство <see cref="Student.Id"/>
     /// будет содержать реальный ID из СУБД (не 0).
     /// </returns>
-    public static async Task<Note> Create(string text, DateTimeOffset createdAt, CancellationToken ct = default)
+    public static async Task<Note> Create(int userid, string text, DateTimeOffset createdAt, CancellationToken ct = default)
     {
         await using var db = new DataContext();
         var note = new Note
         {
             Text = text,
-            CreatedAt = createdAt
+            CreatedAt = createdAt,
+            UserId = userid,
         };
         
         db.Notes.Add(note);
